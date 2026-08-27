@@ -1,0 +1,104 @@
+Sub TarikData_ZWMR019()
+    Dim SapGuiAuto As Object, SAPApp As Object, SAPConn As Object, SAPSession As Object
+    Dim sapROT As Object
+    Dim grid As Object
+    Dim ws As Worksheet
+    Dim asnNumber As String
+    Dim totalBaris As Long, i As Long, rowExcel As Long
+    
+    Set ws = ActiveSheet
+    
+    ' 1. POP-UP INPUT ASN NUMBER
+    asnNumber = InputBox("Masukkan Nomor ASN / Delivery:", "Input ASN - ZWMR019")
+    asnNumber = Trim(asnNumber)
+    
+    If asnNumber = "" Then
+        MsgBox "Proses dibatalkan: Nomor ASN tidak boleh kosong!", vbExclamation, "Batal"
+        Exit Sub
+    End If
+    
+    ' 2. KONEKSI KE SAP GUI LOGON 770
+    On Error Resume Next
+    Set SapGuiAuto = GetObject("SAPGUI")
+    If SapGuiAuto Is Nothing Then
+        Set sapROT = CreateObject("SapROTWr.SapROTWrapper")
+        If Not sapROT Is Nothing Then
+            Set SapGuiAuto = sapROT.GetROTEntry("SAPGUI")
+        End If
+    End If
+    
+    If SapGuiAuto Is Nothing Then
+        MsgBox "SAP GUI belum terbuka atau Scripting belum aktif!", vbCritical, "Koneksi Gagal"
+        Exit Sub
+    End If
+    
+    Set SAPApp = SapGuiAuto.GetScriptingEngine
+    Set SAPConn = SAPApp.Children(0)
+    Set SAPSession = SAPConn.Children(0)
+    On Error GoTo 0
+    
+    On Error GoTo ErrorSAP
+    
+    ' 3. JALANKAN TCODE ZWMR019 & FILTER AWAL
+    SAPSession.StartTransaction "ZWMR019"
+    
+    ' Mengisi Plant = 3330 dan Status = 02 (Sesuaikan ID komponen jika berbeda)
+    SAPSession.findById("wnd[0]/usr/ctxtS_WERKS-LOW").Text = "3330"
+    SAPSession.findById("wnd[0]/usr/ctxtS_STATUS-LOW").Text = "02"
+    
+    ' Tekan F8 (Execute)
+    SAPSession.findById("wnd[0]/tbar[1]/btn[8]").press
+    
+    DoEvents
+    Application.Wait (Now + TimeValue("00:00:02"))
+    
+    ' 4. MENGAKSES TABEL ALV GRID & FILTER ASN (DELIVERY)
+    ' Mendapatkan objek ALV Grid
+    Set grid = SAPSession.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
+    
+    ' Set Filter Kolom Delivery di Grid ALV
+    ' CATATAN: "VBELN" atau "DELIVERY" sesuaikan dengan technical column name ALV
+    grid.selectColumn "VBELN"
+    grid.pressToolbarButton "&MB_FILTER"
+    
+    ' Masukkan nilai ASN ke popup filter SAP
+    SAPSession.findById("wnd[1]/usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/ctxt%%DYN001-LOW").Text = asnNumber
+    SAPSession.findById("wnd[1]/tbar[0]/btn[0]").press ' Tekan Enter / Confirm Filter
+    
+    DoEvents
+    Application.Wait (Now + TimeValue("00:00:01"))
+    
+    ' 5. MEMBACA HASIL TABEL KE EXCEL
+    ' Setup Header Excel
+    ws.Range("A1:D1").Value = Array("Lot ID", "Batch", "Material Number", "Remaining Quantity")
+    ws.Range("A1:D1").Font.Bold = True
+    
+    ' Bersihkan data lama dari baris 2 ke bawah
+    ws.Range("A2:D" & ws.Rows.Count).ClearContents
+    
+    totalBaris = grid.RowCount
+    
+    If totalBaris = 0 Then
+        MsgBox "Tidak ada data ditemukan untuk ASN: " & asnNumber, vbInformation, "Data Kosong"
+        Exit Sub
+    End If
+    
+    rowExcel = 2
+    For i = 0 To totalBaris - 1
+        ' Membaca nilai cell pada baris ke-i
+        ' CATATAN: Ganti "CHARG_LOT", "CHARG", "MATNR", "MENGE" sesuai technical fieldname di SAP ALV
+        ws.Cells(rowExcel, 1).Value = grid.getCellValue(i, "CHARG_LOT") ' Lot ID
+        ws.Cells(rowExcel, 2).Value = grid.getCellValue(i, "CHARG")     ' Batch
+        ws.Cells(rowExcel, 3).Value = grid.getCellValue(i, "MATNR")     ' Material Number
+        ws.Cells(rowExcel, 4).Value = grid.getCellValue(i, "MENGE")     ' Remaining Qty
+        
+        rowExcel = rowExcel + 1
+    Next i
+    
+    MsgBox "Berhasil menarik " & totalBaris & " baris data untuk ASN: " & asnNumber, vbInformation, "Selesai"
+    Exit Sub
+
+ErrorSAP:
+    MsgBox "Terjadi kesalahan saat memproses data SAP ZWMR019!" & vbCrLf & _
+           "Pastikan ID kolom/tabel ALV sudah sesuai.", vbCritical, "Error SAP"
+End Sub
