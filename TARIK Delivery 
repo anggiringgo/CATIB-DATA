@@ -8,7 +8,7 @@ Sub TarikData_Pilihan_DN_atau_ASN()
     
     Set ws = ActiveSheet
     
-    ' 1. PILIH METODE INPUT (1 = Delivery Note, 2 = ASN)
+    ' 1. PILIH METODE INPUT (1 = Delivery Note, 2 = Langsung ASN)
     tipeInput = InputBox("Pilih Tipe Input:" & vbCrLf & _
                          "Ketik '1' untuk Delivery Note (DN)" & vbCrLf & _
                          "Ketik '2' untuk langsung ASN", "Pilih Tipe Input", "1")
@@ -19,7 +19,7 @@ Sub TarikData_Pilihan_DN_atau_ASN()
         Exit Sub
     End If
     
-    ' 2. INPUT NILAI BERDASARKAN PILIHAN
+    ' 2. INPUT NILAI SESUAI PILIHAN
     If tipeInput = "1" Then
         inputVal = InputBox("Masukkan Nomor Delivery Note (DN):", "Input Delivery Note")
     Else
@@ -54,11 +54,27 @@ Sub TarikData_Pilihan_DN_atau_ASN()
     
     On Error GoTo ErrorSAP
     
-    ' 4. JIKA PILIHAN 1: AMBIL ASN DARI ZMM069A
+    ' 4. JIKA PILIHAN 1: PROSES ZMM069A (INBOUND IN TRANSIT)
     If tipeInput = "1" Then
         SAPSession.StartTransaction "ZMM069A"
         
-        ' Mengisi Plant 3330 dan Delivery Note (Sesuaikan ID komponen field ZMM069A Anda)
+        ' --- LANGKAH MEMILIH MENU "INBOUND IN TRANSIT" ---
+        ' CATATAN: Bentuk menu bisa berupa TabStrip, Radio Button, atau Pushbutton.
+        ' Sesuaikan ID komponen di bawah dengan hasil Script Record ZMM069A Anda:
+        
+        ' Contoh 1: Jika berbentuk Tab (TabStrip):
+        ' SAPSession.findById("wnd[0]/usr/tabsTABSTRIP/tabpTAB_TRANSIT").Select
+        
+        ' Contoh 2: Jika berbentuk Tombol / Menu Button di layar:
+        SAPSession.findById("wnd[0]/usr/btnINBOUND_TRANSIT").press
+        
+        ' Contoh 3: Jika berbentuk Radio Button:
+        ' SAPSession.findById("wnd[0]/usr/radRAD_TRANSIT").Select
+        
+        DoEvents
+        Application.Wait (Now + TimeValue("00:00:01"))
+        
+        ' Masukkan Plant 3330 dan Delivery Note
         SAPSession.findById("wnd[0]/usr/ctxtS_WERKS-LOW").Text = "3330"
         SAPSession.findById("wnd[0]/usr/ctxtS_VBELN-LOW").Text = inputVal
         
@@ -68,20 +84,15 @@ Sub TarikData_Pilihan_DN_atau_ASN()
         DoEvents
         Application.Wait (Now + TimeValue("00:00:02"))
         
-        ' Ambil Nomor ASN dari hasil tabel/grid ZMM069A
-        ' Opsi A: Jika ZMM069A berupa ALV Grid (baris pertama)
+        ' Ambil Nomor ASN dari hasil tabel ZMM069A (baris pertama)
         Set gridDN = SAPSession.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
         asnNumber = Trim(gridDN.getCellValue(0, "ASN_NUM")) ' Ganti "ASN_NUM" dengan technical name kolom ASN
         
-        ' Opsi B (Alternatif): Jika berupa field biasa di layar, gunakan findById text box:
-        ' asnNumber = Trim(SAPSession.findById("wnd[0]/usr/txtGD_ASN").Text)
-        
         If asnNumber = "" Then
-            MsgBox "Nomor ASN tidak ditemukan untuk Delivery Note: " & inputVal, vbCritical, "ASN Kosong"
+            MsgBox "Nomor ASN tidak ditemukan di menu Inbound in Transit untuk DN: " & inputVal, vbCritical, "ASN Kosong"
             Exit Sub
         End If
     Else
-        ' Jika pilihan 2, nilai input langsung menjadi nomor ASN
         asnNumber = inputVal
     End If
     
@@ -116,7 +127,7 @@ Sub TarikData_Pilihan_DN_atau_ASN()
     totalBaris = grid.RowCount
     
     If totalBaris = 0 Then
-        MsgBox "Tidak ada data ditemukan untuk ASN: " & asnNumber, vbInformation, "Data Kosong"
+        MsgBox "Tidak ada data ditemukan di ZWMR019 untuk ASN: " & asnNumber, vbInformation, "Data Kosong"
         Exit Sub
     End If
     
@@ -135,5 +146,5 @@ Sub TarikData_Pilihan_DN_atau_ASN()
 
 ErrorSAP:
     MsgBox "Terjadi kesalahan saat memproses data SAP!" & vbCrLf & _
-           "Pastikan field Plant, Delivery, atau nama kolom ALV sudah sesuai hasil recording.", vbCritical, "Error SAP"
+           "Pastikan ID tombol Inbound in Transit atau nama field di ZMM069A sudah sesuai hasil recording.", vbCritical, "Error SAP"
 End Sub
