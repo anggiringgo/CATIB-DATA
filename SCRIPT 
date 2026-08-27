@@ -1,23 +1,41 @@
-Sub CariBinSAP()
-    Dim SapGuiAuto As Object
-    Dim SAPApp As Object
-    Dim SAPConn As Object
-    Dim SAPSession As Object
-    
+Sub Book_LokasiBin_ZWMP002()
+    Dim SapGuiAuto As Object, SAPApp As Object, SAPConn As Object, SAPSession As Object
+    Dim sapROT As Object
     Dim ws As Worksheet
-    Dim lotID As String
-    Dim barisTerakhir As Long ' Diperbaiki: spasi dihapus
-    Dim binLocation As String
-    Dim i As Long
+    Dim targetBin As String, lotID As String, batchID As String
+    Dim barisTerakhir As Long, i As Long, suksesCount As Long
+    Dim dictBatch As Object
     
-    ' Menggunakan sheet yang sedang aktif agar tidak error "Subscript out of range"
-    Set ws = ActiveSheet 
+    Set ws = ActiveSheet ' Menggunakan sheet yang sedang aktif
     
-    ' 1. KONEKSI KE SAP YANG SEDANG TERBUKA
+    ' 1. POP-UP INPUT LOKASI BIN TUJUAN
+    targetBin = InputBox("Masukkan Lokasi Storage Bin Tujuan:", "Input Lokasi Bin - ZWMP002")
+    targetBin = Trim(targetBin)
+    
+    If targetBin = "" Then
+        MsgBox "Proses dibatalkan: Lokasi Bin tidak boleh kosong!", vbExclamation, "Batal"
+        Exit Sub
+    End If
+    
+    ' 2. CEK DATA LOT ID DI KOLOM A (Mulai Baris 5)
+    barisTerakhir = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    If barisTerakhir < 5 Then
+        MsgBox "Data Lot ID di kolom A (mulai baris 5) tidak ditemukan!", vbCritical, "Data Kosong"
+        Exit Sub
+    End If
+    
+    ' 3. INISIALISASI KONEKSI KE SAP GUI (Metode Stabil / SAP Logon 770)
     On Error Resume Next
     Set SapGuiAuto = GetObject("SAPGUI")
     If SapGuiAuto Is Nothing Then
-        MsgBox "Silakan buka SAP GUI terlebih dahulu!", vbCritical
+        Set sapROT = CreateObject("SapROTWr.SapROTWrapper")
+        If Not sapROT Is Nothing Then
+            Set SapGuiAuto = sapROT.GetROTEntry("SAPGUI")
+        End If
+    End If
+    
+    If SapGuiAuto Is Nothing Then
+        MsgBox "SAP GUI belum terbuka atau Scripting belum aktif!", vbCritical, "Koneksi Gagal"
         Exit Sub
     End If
     
@@ -26,27 +44,54 @@ Sub CariBinSAP()
     Set SAPSession = SAPConn.Children(0)
     On Error GoTo 0
     
-    ' 2. PROSES PENCARIAN DATA (LOOPING)
-    barisTerakhir = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    ' Inisialisasi Dictionary untuk memastikan 1 Batch hanya diproses 1 kali
+    Set dictBatch = CreateObject("Scripting.Dictionary")
+    suksesCount = 0
     
-    For i = 2 To barisTerakhir
-        lotID = Trim(ws.Cells(i, 1).Value)
+    On Error GoTo ErrorSAP
+    
+    ' 4. LOOPING PROSES INPUT
+    For i = 5 To barisTerakhir
+        lotID = Trim(ws.Cells(i, 1).Value)      ' Kolom A
+        batchID = Trim(ws.Cells(i, 3).Value)    ' Kolom C
         
         If lotID <> "" Then
-            ' --- KODE SAP SCRIPTING START ---
-            SAPSession.StartTransaction "LS24"
-            
-            SAPSession.findById("wnd[0]/usr/ctxtLGNUM").Text = "100"
-            SAPSession.findById("wnd[0]/usr/ctxtMATNR").Text = lotID
-            SAPSession.findById("wnd[0]/txtCHARG").Text = ""
-            SAPSession.findById("wnd[0]/tbar[0]/btn[0]").press
-            
-            binLocation = SAPSession.findById("wnd[0]/usr/lbl[12,10]").Text 
-            ' --- KODE SAP SCRIPTING END ---
-            
-            ws.Cells(i, 2).Value = binLocation
+            ' Pengecekan Syarat: Per Batch hanya boleh 1 kali Lot ID
+            If batchID <> "" And dictBatch.exists(batchID) Then
+                ' Jika Batch sudah pernah diinput sebelumnya, skip
+                ws.Cells(i, 4).Value = "SKIPPED (DUPLICATE BATCH)"
+            Else
+                ' Catat batch ke dalam dictionary jika ada
+                If batchID <> "" Then dictBatch.Add batchID, True
+                
+                ' --- STEP A: INPUT LOT ID LALU ENTER ---
+                ' CATATAN: Ganti "txtGD_LOT" dengan ID kolom Lot ID hasil Record ZWMP002 Anda
+                SAPSession.findById("wnd[0]/usr/txtGD_LOT").Text = lotID
+                SAPSession.findById("wnd[0]").sendVKey 0 ' Enter
+                
+                DoEvents
+                Application.Wait (Now + TimeValue("00:00:01"))
+                
+                ' --- STEP B: INPUT STORAGE BIN LALU ENTER ---
+                ' CATATAN: Ganti "txtGD_BIN" dengan ID kolom Bin hasil Record ZWMP002 Anda
+                SAPSession.findById("wnd[0]/usr/txtGD_BIN").Text = targetBin
+                SAPSession.findById("wnd[0]").sendVKey 0 ' Enter
+                
+                DoEvents
+                Application.Wait (Now + TimeValue("00:00:01"))
+                
+                ' Tandai status di Kolom D
+                ws.Cells(i, 4).Value = "SUCCESS (" & targetBin & ")"
+                suksesCount = suksesCount + 1
+            End If
         End If
     Next i
     
-    MsgBox "Pencarian selesai!", vbInformation
+    MsgBox "Proses selesai!" & vbCrLf & _
+           "Berhasil memproses: " & suksesCount & " Lot ID ke Bin: " & targetBin, vbInformation, "Selesai"
+    Exit Sub
+
+ErrorSAP:
+    MsgBox "Terjadi kesalahan pada session SAP ZWMP002!" & vbCrLf & _
+           "Pastikan layar ZWMP002 sudah siap dan ID komponen kolom sudah sesuai.", vbCritical, "Error SAP"
 End Sub
