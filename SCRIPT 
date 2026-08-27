@@ -1,64 +1,52 @@
-Sub Otomatis_GR_VirtualPDA()
-    Dim SapGuiAuto As Object, SAPApp As Object, SAPConn As Object, SAPSession As Object
+Sub CariBinSAP()
+    Dim SapGuiAuto As Object
+    Dim SAPApp As Object
+    Dim SAPConn As Object
+    Dim SAPSession As Object
+    
     Dim ws As Worksheet
-    Dim nomorDN As String, lotID As String
-    Dim barisTerakhir As Long, i As Long
+    Dim lotID As String
+    Dim barisTerakhir As Long ' Diperbaiki: spasi dihapus
+    Dim binLocation As String
+    Dim i As Long
     
-    ' 1. Set worksheet tempat data berada
-    Set ws = ThisWorkbook.Sheets("Data_GR")
+    ' Menggunakan sheet yang sedang aktif agar tidak error "Subscript out of range"
+    Set ws = ActiveSheet 
     
-    ' 2. Ambil Nomor DN dari cell B2
-    nomorDN = Trim(ws.Range("B2").Value)
-    If nomorDN = "" Then
-        MsgBox "Nomor DN di Cell B2 tidak boleh kosong!", vbCritical
-        Exit Sub
-    End If
-    
-    ' 3. Cari baris terakhir data Lot ID di Kolom A (data mulai dari baris 5)
-    barisTerakhir = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
-    
-    ' 4. Koneksi ke SAP GUI yang sedang aktif
+    ' 1. KONEKSI KE SAP YANG SEDANG TERBUKA
     On Error Resume Next
     Set SapGuiAuto = GetObject("SAPGUI")
     If SapGuiAuto Is Nothing Then
-        MsgBox "Silakan buka SAP GUI dan masuk ke menu ZWMP001 terlebih dahulu!", vbCritical
+        MsgBox "Silakan buka SAP GUI terlebih dahulu!", vbCritical
         Exit Sub
     End If
+    
     Set SAPApp = SapGuiAuto.GetScriptingEngine
     Set SAPConn = SAPApp.Children(0)
     Set SAPSession = SAPConn.Children(0)
     On Error GoTo 0
     
-    ' 5. PROSES INPUT NOMOR DN (Hanya sekali di awal)
-    On Error GoTo ErrorSAP
-    ' CATATAN: Ganti "txtGD_LFNUM" sesuai ID kolom DN asli Anda dari hasil record
-    SAPSession.findById("wnd[0]/usr/txtGD_LFNUM").Text = nomorDN
-    SAPSession.findById("wnd[0]").sendVKey 0 ' Tekan Enter untuk mengunci DN
+    ' 2. PROSES PENCARIAN DATA (LOOPING)
+    barisTerakhir = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
     
-    ' 6. LOOPING PENGENTRIAN LOT ID
-    For i = 5 To barisTerakhir
+    For i = 2 To barisTerakhir
         lotID = Trim(ws.Cells(i, 1).Value)
         
         If lotID <> "" Then
-            ' Masukkan Lot ID ke field Label ID
-            ' CATATAN: Ganti "txtGD_LABEL" sesuai ID kolom Label ID asli Anda dari hasil record
-            SAPSession.findById("wnd[0]/usr/txtGD_LABEL").Text = lotID
+            ' --- KODE SAP SCRIPTING START ---
+            SAPSession.StartTransaction "LS24"
             
-            ' Kirim perintah ENTER (meniru aksi virtual PDA saat scan)
-            SAPSession.findById("wnd[0]").sendVKey 0
+            SAPSession.findById("wnd[0]/usr/ctxtLGNUM").Text = "100"
+            SAPSession.findById("wnd[0]/usr/ctxtMATNR").Text = lotID
+            SAPSession.findById("wnd[0]/txtCHARG").Text = ""
+            SAPSession.findById("wnd[0]/tbar[0]/btn[0]").press
             
-            ' Berikan jeda waktu 1 detik agar SAP selesai memproses database
-            DoEvents
-            Application.Wait (Now + TimeValue("00:00:01"))
+            binLocation = SAPSession.findById("wnd[0]/usr/lbl[12,10]").Text 
+            ' --- KODE SAP SCRIPTING END ---
             
-            ' Tandai di Excel bahwa data baris ini sudah selesai diproses
-            ws.Cells(i, 2).Value = "SUCCESS"
+            ws.Cells(i, 2).Value = binLocation
         End If
     Next i
     
-    MsgBox "Proses GR sebanyak " & (barisTerakhir - 4) & " Lot ID selesai!", vbInformation, "Sukses"
-    Exit Sub
-
-ErrorSAP:
-    MsgBox "Terjadi kesalahan koneksi komponen SAP! Pastikan Anda sudah membuka menu ZWMP001.", vbCritical, "Error SAP"
+    MsgBox "Pencarian selesai!", vbInformation
 End Sub
