@@ -6,6 +6,10 @@ Sub Book_LokasiBin_ZWMP002()
     Dim barisTerakhir As Long, i As Long, suksesCount As Long
     Dim dictBatch As Object
     
+    ' Optimasi Performa Excel: Matikan Update Layar & Perhitungan Otomatis
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+    
     Set ws = ActiveSheet ' Menggunakan sheet yang sedang aktif
     
     ' 1. POP-UP INPUT LOKASI BIN TUJUAN
@@ -14,17 +18,17 @@ Sub Book_LokasiBin_ZWMP002()
     
     If targetBin = "" Then
         MsgBox "Proses dibatalkan: Lokasi Bin tidak boleh kosong!", vbExclamation, "Batal"
-        Exit Sub
+        GoTo ResetExcel
     End If
     
     ' 2. CEK DATA LOT ID DI KOLOM A (Mulai Baris 5)
     barisTerakhir = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
     If barisTerakhir < 5 Then
         MsgBox "Data Lot ID di kolom A (mulai baris 5) tidak ditemukan!", vbCritical, "Data Kosong"
-        Exit Sub
+        GoTo ResetExcel
     End If
     
-    ' 3. INISIALISASI KONEKSI KE SAP GUI (Metode Stabil / SAP Logon 770)
+    ' 3. INISIALISASI KONEKSI KE SAP GUI
     On Error Resume Next
     Set SapGuiAuto = GetObject("SAPGUI")
     If SapGuiAuto Is Nothing Then
@@ -36,7 +40,7 @@ Sub Book_LokasiBin_ZWMP002()
     
     If SapGuiAuto Is Nothing Then
         MsgBox "SAP GUI belum terbuka atau Scripting belum aktif!", vbCritical, "Koneksi Gagal"
-        Exit Sub
+        GoTo ResetExcel
     End If
     
     Set SAPApp = SapGuiAuto.GetScriptingEngine
@@ -50,7 +54,7 @@ Sub Book_LokasiBin_ZWMP002()
     
     On Error GoTo ErrorSAP
     
-    ' 4. LOOPING PROSES INPUT
+    ' 4. LOOPING PROSES INPUT (TANPA JEDA / Cepat)
     For i = 5 To barisTerakhir
         lotID = Trim(ws.Cells(i, 1).Value)      ' Kolom A
         batchID = Trim(ws.Cells(i, 3).Value)    ' Kolom C
@@ -65,20 +69,18 @@ Sub Book_LokasiBin_ZWMP002()
                 If batchID <> "" Then dictBatch.Add batchID, True
                 
                 ' --- STEP A: INPUT LOT ID LALU ENTER ---
-                ' CATATAN: Ganti "txtGD_LOT" dengan ID kolom Lot ID hasil Record ZWMP002 Anda
                 SAPSession.findById("wnd[0]/usr/txtG_QRCODE").Text = lotID
                 SAPSession.findById("wnd[0]").sendVKey 0 ' Enter
                 
-                DoEvents
-                Application.Wait (Now + TimeValue("00:00:01"))
+                ' Tunggu SAP memproses (Instan, tanpa waktu tunggu mati)
+                WaitSAP SAPSession
                 
                 ' --- STEP B: INPUT STORAGE BIN LALU ENTER ---
-                ' CATATAN: Ganti "txtGD_BIN" dengan ID kolom Bin hasil Record ZWMP002 Anda
                 SAPSession.findById("wnd[0]/usr/txtG_LGPLA").Text = targetBin
                 SAPSession.findById("wnd[0]").sendVKey 0 ' Enter
                 
-                DoEvents
-                Application.Wait (Now + TimeValue("00:00:01"))
+                ' Tunggu SAP memproses
+                WaitSAP SAPSession
                 
                 ' Tandai status di Kolom D
                 ws.Cells(i, 4).Value = "SUCCESS (" & targetBin & ")"
@@ -87,12 +89,31 @@ Sub Book_LokasiBin_ZWMP002()
         End If
     Next i
     
+    ' Kembalikan Performa Excel ke Normal
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    
     MsgBox "Proses selesai!" & vbCrLf & _
            "Berhasil memproses: " & suksesCount & " Lot ID ke Bin: " & targetBin, vbInformation, "Selesai"
     Exit Sub
 
 ErrorSAP:
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
     MsgBox "Terjadi kesalahan pada session SAP ZWMP002!" & vbCrLf & _
+           "Nomor Baris Excel: " & i & vbCrLf & _
            "Pastikan layar ZWMP002 sudah siap dan ID komponen kolom sudah sesuai.", vbCritical, "Error SAP"
+    Exit Sub
+
+ResetExcel:
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+End Sub
+
+' Sub-routine untuk menunggu SAP secara dinamis (Cepat & Responsif)
+Sub WaitSAP(Session As Object)
+    Do While Session.Busy
+        DoEvents
+    Loop
 End Sub
 
