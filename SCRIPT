@@ -66,7 +66,7 @@ Sub Book_LokasiBin_ZWMP002()
                 
                 ' --- STEP A: INPUT LOT ID LALU ENTER ---
                 ' CATATAN: Ganti "txtGD_LOT" dengan ID kolom Lot ID hasil Record ZWMP002 Anda
-                SAPSession.findById("wnd[0]/usr/txtGD_LOT").Text = lotID
+                SAPSession.findById("wnd[0]/usr/txtG_QRCODE").Text = lotID
                 SAPSession.findById("wnd[0]").sendVKey 0 ' Enter
                 
                 DoEvents
@@ -74,7 +74,7 @@ Sub Book_LokasiBin_ZWMP002()
                 
                 ' --- STEP B: INPUT STORAGE BIN LALU ENTER ---
                 ' CATATAN: Ganti "txtGD_BIN" dengan ID kolom Bin hasil Record ZWMP002 Anda
-                SAPSession.findById("wnd[0]/usr/txtGD_BIN").Text = targetBin
+                SAPSession.findById("wnd[0]/usr/txtG_LGPLA").Text = targetBin
                 SAPSession.findById("wnd[0]").sendVKey 0 ' Enter
                 
                 DoEvents
@@ -95,3 +95,4 @@ ErrorSAP:
     MsgBox "Terjadi kesalahan pada session SAP ZWMP002!" & vbCrLf & _
            "Pastikan layar ZWMP002 sudah siap dan ID komponen kolom sudah sesuai.", vbCritical, "Error SAP"
 End Sub
+
