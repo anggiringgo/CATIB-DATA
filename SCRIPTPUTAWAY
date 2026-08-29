@@ -6,13 +6,17 @@ Sub Proses_ZWMP292_PerBatch()
     Dim barisTerakhir As Long, i As Long, suksesCount As Long
     Dim dictBatch As Object
     
+    ' Optimasi Performa Excel: Matikan Update Layar & Perhitungan Otomatis
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+    
     Set ws = ActiveSheet
     
     ' 1. Cek ketersediaan data di Kolom A (Mulai baris 5)
     barisTerakhir = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
     If barisTerakhir < 5 Then
         MsgBox "Data Lot ID di kolom A (mulai baris 5) tidak ditemukan!", vbCritical, "Data Kosong"
-        Exit Sub
+        GoTo ResetExcel
     End If
     
     ' 2. Inisialisasi Koneksi ke SAP GUI yang sedang aktif
@@ -27,7 +31,7 @@ Sub Proses_ZWMP292_PerBatch()
     
     If SapGuiAuto Is Nothing Then
         MsgBox "SAP GUI belum terbuka atau Scripting belum aktif!", vbCritical, "Koneksi Gagal"
-        Exit Sub
+        GoTo ResetExcel
     End If
     
     Set SAPApp = SapGuiAuto.GetScriptingEngine
@@ -41,7 +45,12 @@ Sub Proses_ZWMP292_PerBatch()
     
     On Error GoTo ErrorSAP
     
-    ' 3. Looping Data
+    ' --- OTOMATIS BUKA T-CODE /NZWMP292 DIAWAL ---
+    SAPSession.findById("wnd[0]/tbar[0]/okcd").Text = "/NZWMP292"
+    SAPSession.findById("wnd[0]").sendVKey 0
+    WaitSAP SAPSession
+    
+    ' 3. Looping Data (Tanpa Jeda / Super Cepat)
     For i = 5 To barisTerakhir
         lotID = Trim(ws.Cells(i, 1).Value)      ' Kolom A
         batchID = Trim(ws.Cells(i, 3).Value)    ' Kolom C
@@ -54,25 +63,20 @@ Sub Proses_ZWMP292_PerBatch()
                 If batchID <> "" Then dictBatch.Add batchID, True
                 
                 ' --- STEP 1: INPUT LOT ID ---
-                ' CATATAN: Ganti "txtGD_LOT" dengan ID input box Lot ID dari Record Anda
                 SAPSession.findById("wnd[0]/usr/txtGV_ZLOTID").Text = lotID
                 
                 ' --- STEP 2: TEKAN ENTER ---
                 SAPSession.findById("wnd[0]").sendVKey 0
-                
-                DoEvents
-                Application.Wait (Now + TimeValue("00:00:01"))
+                WaitSAP SAPSession
                 
                 ' --- STEP 3: TEKAN TOMBOL CONFIRM ---
-                ' CATATAN: Ganti ID tombol confirm sesuai hasil record (Contoh tombol F8 / Save / Button kustom)
-                ' Opsi A: Jika tombol ada di toolbar/layar body:
+                ' Opsi A: Jika menggunakan tombol fisik di layar
                 SAPSession.findById("wnd[0]/usr/btnCONFIRM").press
                 
-                ' Opsi B (Alternatif): Jika confirm menggunakan shortcut Function Key (misal F8 = 8, F11/Save = 11)
-                ' SAPSession.findById("wnd[0]").sendVKey 8
+                ' Opsi B (Gunakan jika Opsi A error/pakai shortcut keyboard):
+                ' SAPSession.findById("wnd[0]").sendVKey 8 ' Contoh VKey 8 (F8)
                 
-                DoEvents
-                Application.Wait (Now + TimeValue("00:00:01"))
+                WaitSAP SAPSession
                 
                 ' Tandai status sukses di Kolom D
                 ws.Cells(i, 4).Value = "SUCCESS"
@@ -81,12 +85,31 @@ Sub Proses_ZWMP292_PerBatch()
         End If
     Next i
     
+    ' Kembalikan Performa Excel ke Normal
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    
     MsgBox "Proses ZWMP292 Selesai!" & vbCrLf & _
            "Total " & suksesCount & " Lot ID berhasil di-confirm.", vbInformation, "Selesai"
     Exit Sub
 
 ErrorSAP:
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
     MsgBox "Terjadi kesalahan pada session SAP ZWMP292!" & vbCrLf & _
-           "Pastikan Anda berada di layar menu ZWMP292 yang aktif dan ID tombol Confirm sudah sesuai.", vbCritical, "Error SAP"
+           "Baris ke-" & i & " (" & lotID & ")" & vbCrLf & _
+           "Detail Error: " & Err.Description, vbCritical, "Error SAP"
+    Exit Sub
+
+ResetExcel:
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+End Sub
+
+' Sub-routine untuk menunggu proses SAP secara instan dan dinamis
+Sub WaitSAP(Session As Object)
+    Do While Session.Busy
+        DoEvents
+    Loop
 End Sub
 
