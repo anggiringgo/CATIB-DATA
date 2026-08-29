@@ -55,7 +55,7 @@ Sub Proses_ZWMP292_PerBatch()
                 
                 ' --- STEP 1: INPUT LOT ID ---
                 ' CATATAN: Ganti "txtGD_LOT" dengan ID input box Lot ID dari Record Anda
-                SAPSession.findById("wnd[0]/usr/txtGD_LOT").Text = lotID
+                SAPSession.findById("wnd[0]/usr/txtGV_ZLOTID").Text = lotID
                 
                 ' --- STEP 2: TEKAN ENTER ---
                 SAPSession.findById("wnd[0]").sendVKey 0
@@ -89,3 +89,4 @@ ErrorSAP:
     MsgBox "Terjadi kesalahan pada session SAP ZWMP292!" & vbCrLf & _
            "Pastikan Anda berada di layar menu ZWMP292 yang aktif dan ID tombol Confirm sudah sesuai.", vbCritical, "Error SAP"
 End Sub
+
