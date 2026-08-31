@@ -91,8 +91,25 @@ Sub Cari_DN_Otomatis_SalinSemua()
     SAPSession.findById("wnd[0]/usr/btnEXIT").press
     WaitSAP SAPSession
      
-    MsgBox "Proses Selesai!" & vbCrLf & _
-            "Hasil di B2: " & ws.Range("B2").Value, vbInformation, "Sukses"
+    ' -----------------------------------------------------------------
+    ' 10. POP UP KONFIRMASI UNTUK LANJUT GR
+    ' -----------------------------------------------------------------
+    Dim konfirmasi As VbMsgBoxResult
+    
+    If nomorDNBaru <> "" Then
+        ' Jika DN ketemu, tanyakan Yes/No
+        konfirmasi = MsgBox("DN ditemukan! Lanjut GR?", vbYesNo + vbQuestion, "Konfirmasi")
+        
+        If konfirmasi = vbYes Then
+            ' PANGGIL MAKRO DARI MODULE 4 DI SINI
+            ' Ganti "NamaMacroDiModule4" dengan nama sub Anda yang sebenarnya (misal: "Proses_GR")
+            Application.Run "Otomatis_GR_VirtualPDA"
+        End If
+    Else
+        ' Jika DN tidak ketemu, infokan pesan gagal
+        MsgBox "DN tidak ditemukan! Silakan cek teks mentah di sel B2.", vbExclamation, "Perhatian"
+    End If
+     
     Exit Sub
 
 ErrorKoneksi:
@@ -140,4 +157,5 @@ Function EkstrakNomorDN(ByVal teksMentah As String) As String
         EkstrakNomorDN = ""
     End If
 End Function
+
 
