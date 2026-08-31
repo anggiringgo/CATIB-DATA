@@ -1,0 +1,143 @@
+Option Explicit
+
+Sub Cari_DN_Otomatis_SalinSemua()
+    Dim SapGuiAuto As Object, SAPApp As Object, SAPConn As Object, SAPSession As Object
+    Dim ws As Worksheet
+    Dim lotIDPertama As String
+    Dim teksFieldMES As String, teksSBar As String, gabunganTeks As String
+    Dim nomorDNBaru As String
+     
+    ' Set Worksheet Aktif
+    Set ws = ActiveSheet
+     
+    ' -----------------------------------------------------------------
+    ' TAMBAHAN: Lakukan Paste (Ctrl+V) ke Cell A5 terlebih dahulu
+    ' -----------------------------------------------------------------
+    ws.Range("A5").Select
+    On Error Resume Next
+    ws.Paste
+    On Error GoTo 0
+    ' -----------------------------------------------------------------
+     
+    ' 1. Ambil Lot ID Pertama dari Cell A5 (yang baru saja di-paste)
+    lotIDPertama = Trim(ws.Range("A5").Value)
+    If lotIDPertama = "" Then
+        MsgBox "Cell A5 (Lot ID Pertama) kosong atau gagal dipaste!", vbExclamation, "Data Kosong"
+        Exit Sub
+    End If
+     
+    ' 2. Koneksi ke SAP GUI
+    On Error GoTo ErrorKoneksi
+    Set SapGuiAuto = GetObject("SAPGUI")
+    Set SAPApp = SapGuiAuto.GetScriptingEngine
+    Set SAPConn = SAPApp.Children(0)
+    Set SAPSession = SAPConn.Children(0)
+    On Error GoTo ErrorProses
+     
+    ' 3. Buka T-Code /NZWMP001
+    SAPSession.findById("wnd[0]/tbar[0]/okcd").Text = "/NZWMP001"
+    SAPSession.findById("wnd[0]").sendVKey 0
+    WaitSAP SAPSession
+     
+    ' 4. Input DN Dummy "A"
+    With SAPSession.findById("wnd[0]/usr/txtWA_9001-EBELN")
+        .SetFocus
+        .Text = "A"
+    End With
+     
+    ' 5. Input Lot ID Pertama dari Cell A5
+    With SAPSession.findById("wnd[0]/usr/txtWA_9001-S_ID")
+        .SetFocus
+        .Text = lotIDPertama
+    End With
+     
+    ' 6. Tekan ENTER untuk memicu munculnya teks pesan
+    SAPSession.findById("wnd[0]").sendVKey 0
+    WaitSAP SAPSession
+     
+    ' -----------------------------------------------------------------
+    ' 7. AMBIL SELURUH TEKS DARI DUA SUMBER POTENSIAL
+    ' -----------------------------------------------------------------
+    teksFieldMES = ""
+    teksSBar = ""
+     
+    ' A. Ambil dari Field txtWA_9001-MES
+    On Error Resume Next
+    teksFieldMES = SAPSession.findById("wnd[0]/usr/txtWA_9001-MES").Text
+    On Error GoTo ErrorProses
+     
+    ' B. Ambil dari Status Bar
+    On Error Resume Next
+    teksSBar = SAPSession.findById("wnd[0]/sbar").Text
+    On Error GoTo ErrorProses
+     
+    ' C. Gabungkan seluruh teks yang didapat
+    gabunganTeks = teksFieldMES & " " & teksSBar
+     
+    ' -----------------------------------------------------------------
+    ' 8. OLAH TEKS DI BELAKANG LAYAR (EXCEL)
+    ' -----------------------------------------------------------------
+    nomorDNBaru = EkstrakNomorDN(gabunganTeks)
+     
+    If nomorDNBaru <> "" Then
+        ws.Range("B2").Value = nomorDNBaru
+    Else
+        ' Jika nomor DN tidak ditemukan, tampilkan seluruh teks mentah untuk dicek
+        ws.Range("B2").Value = Trim(gabunganTeks)
+    End If
+     
+    ' 9. Jeda 1 detik lalu reset tampilan SAP
+    Application.Wait (Now + TimeValue("00:00:01"))
+    SAPSession.findById("wnd[0]/usr/btnEXIT").press
+    WaitSAP SAPSession
+     
+    MsgBox "Proses Selesai!" & vbCrLf & _
+            "Hasil di B2: " & ws.Range("B2").Value, vbInformation, "Sukses"
+    Exit Sub
+
+ErrorKoneksi:
+    MsgBox "Gagal terhubung ke SAP GUI! Pastikan SAP sudah dibuka dan login.", vbCritical, "Koneksi Error"
+    Exit Sub
+
+ErrorProses:
+    MsgBox "Terjadi Kesalahan pada Scripting SAP!" & vbCrLf & _
+            "Detail Error: " & Err.Description, vbCritical, "Error SAP"
+End Sub
+
+' =========================================================================
+' FUNGSI 1: Menunggu SAP Selesai Loading
+' =========================================================================
+Sub WaitSAP(ByRef Session As Object)
+    Do While Session.Busy
+        DoEvents
+    Loop
+End Sub
+
+' =========================================================================
+' FUNGSI 2: Ekstrak Angka DN dari Teks Apapun yang Terambil
+' =========================================================================
+Function EkstrakNomorDN(ByVal teksMentah As String) As String
+    Dim regEx As Object
+    Dim matches As Object
+     
+    If Trim(teksMentah) = "" Then
+        EkstrakNomorDN = ""
+        Exit Function
+    End If
+     
+    Set regEx = CreateObject("VBScript.RegExp")
+    With regEx
+        ' Mencari deretan 8 sampai 10 angka berurutan di dalam teks
+        .Pattern = "\b\d{8,10}\b"
+        .IgnoreCase = True
+        .Global = False
+    End With
+     
+    If regEx.Test(teksMentah) Then
+        Set matches = regEx.Execute(teksMentah)
+        EkstrakNomorDN = matches(0).Value
+    Else
+        EkstrakNomorDN = ""
+    End If
+End Function
+
