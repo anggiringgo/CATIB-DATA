@@ -1,8 +1,13 @@
 Sub Otomatis_GR_VirtualPDA()
     Dim SapGuiAuto As Object, SAPApp As Object, SAPConn As Object, SAPSession As Object
     Dim ws As Worksheet
-    Dim nomorDN As String, lotID As String
+    Dim nomorDN As String, lotID As String, nomorBatch As String, pesanSAP As String
     Dim barisTerakhir As Long, i As Long
+    Dim responUser As VbMsgBoxResult
+    
+    ' Optimasi Excel: Matikan Update Layar & Perhitungan Otomatis
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
     
     ' 1. Set worksheet tempat data berada
     Set ws = ActiveSheet
@@ -11,55 +16,129 @@ Sub Otomatis_GR_VirtualPDA()
     nomorDN = Trim(ws.Range("B2").Value)
     If nomorDN = "" Then
         MsgBox "Nomor DN di Cell B2 tidak boleh kosong!", vbCritical
-        Exit Sub
+        GoTo ResetExcel
     End If
     
-    ' 3. Cari baris terakhir data Lot ID di Kolom A (data mulai dari baris 5)
+    ' 3. Cari baris terakhir data Lot ID di Kolom A (mulai baris 5)
     barisTerakhir = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    If barisTerakhir < 5 Then
+        MsgBox "Tidak ada data Lot ID yang akan diproses di Kolom A!", vbExclamation
+        GoTo ResetExcel
+    End If
     
     ' 4. Koneksi ke SAP GUI yang sedang aktif
     On Error Resume Next
     Set SapGuiAuto = GetObject("SAPGUI")
     If SapGuiAuto Is Nothing Then
-        MsgBox "Silakan buka SAP GUI dan masuk ke menu ZWMP001 terlebih dahulu!", vbCritical
-        Exit Sub
+        MsgBox "Silakan buka aplikasi SAP GUI terlebih dahulu!", vbCritical
+        GoTo ResetExcel
     End If
     Set SAPApp = SapGuiAuto.GetScriptingEngine
     Set SAPConn = SAPApp.Children(0)
     Set SAPSession = SAPConn.Children(0)
     On Error GoTo 0
     
-    ' 5. PROSES INPUT NOMOR DN (Hanya sekali di awal)
     On Error GoTo ErrorSAP
-    ' CATATAN: Ganti "txtGD_LFNUM" sesuai ID kolom DN asli Anda dari hasil record
-    SAPSession.findById("wnd[0]/usr/txtWA_9001-EBELN").Text = nomorDN
-    SAPSession.findById("wnd[0]").sendVKey 0 ' Tekan Enter untuk mengunci DN
     
-    ' 6. LOOPING PENGENTRIAN LOT ID
+    ' 5. BUKA T-CODE /NZWMR019 OTOMATIS
+    SAPSession.findById("wnd[0]/tbar[0]/okcd").Text = "/NZWMP001"
+    SAPSession.findById("wnd[0]").sendVKey 0
+    WaitSAP SAPSession
+    
+    ' 6. INPUT NOMOR DN
+    SAPSession.findById("wnd[0]/usr/txtWA_9001-EBELN").Text = nomorDN
+    SAPSession.findById("wnd[0]").sendVKey 0 ' Tekan Enter
+    WaitSAP SAPSession
+    
+    ' 7. LOOPING PENGENTRIAN LOT ID & PENGAMBILAN BATCH (CEPAT)
     For i = 5 To barisTerakhir
         lotID = Trim(ws.Cells(i, 1).Value)
         
         If lotID <> "" Then
             ' Masukkan Lot ID ke field Label ID
-            ' CATATAN: Ganti "txtGD_LABEL" sesuai ID kolom Label ID asli Anda dari hasil record
             SAPSession.findById("wnd[0]/usr/txtWA_9001-S_ID").Text = lotID
             
-            ' Kirim perintah ENTER (meniru aksi virtual PDA saat scan)
+            ' Kirim ENTER
             SAPSession.findById("wnd[0]").sendVKey 0
             
-            ' Berikan jeda waktu 1 detik agar SAP selesai memproses database
-            DoEvents
-            Application.Wait (Now + TimeValue("00:00:01"))
+            ' Tunggu SAP selesai memproses (tanpa jeda mati)
+            WaitSAP SAPSession
             
-            ' Tandai di Excel bahwa data baris ini sudah selesai diproses
-            ws.Cells(i, 3).Value = "SUCCESS"
+            ' --- BACA NOMOR BATCH ---
+            nomorBatch = ""
+            On Error Resume Next
+            
+            SAPSession.findById("wnd[0]/usr/txtWA_9001-CHARG").SetFocus
+            nomorBatch = Trim(SAPSession.findById("wnd[0]/usr/txtWA_9001-CHARG").Text)
+            
+            If nomorBatch = "" Then
+                nomorBatch = Trim(SAPSession.findById("wnd[0]/usr/txtWA_9001-CHARG").displayedText)
+            End If
+            
+            If nomorBatch = "" Then
+                nomorBatch = Trim(SAPSession.findById("wnd[0]/sbar").Text)
+            End If
+            On Error GoTo ErrorSAP
+            
+            ' Tulis nomor batch ke Kolom C
+            If nomorBatch <> "" Then
+                ws.Cells(i, 3).Value = nomorBatch
+            Else
+                ws.Cells(i, 3).Value = "Gagal Ambil Batch"
+            End If
         End If
     Next i
+    
+    ' 8. KONFIRMASI SETELAH SEMUA LOT ID BERHASIL DITAMBAHKAN
+    SAPSession.findById("wnd[0]/usr/btnQUEREN").press
+    WaitSAP SAPSession
+    
+    ' Ambil teks dari txtTXT dengan penanganan error jika field tidak ditemukan
+    On Error Resume Next
+    pesanSAP = Trim(SAPSession.findById("wnd[0]/usr/txtTXT").Text)
+    On Error GoTo ErrorSAP
+    
+    ' Validasi pesan popup SAP
+    If pesanSAP = "Execute Receipt 101?" Then
+        responUser = MsgBox(pesanSAP, vbYesNo + vbQuestion, "Konfirmasi SAP")
+        
+        If responUser = vbNo Then
+            MsgBox "Proses dibatalkan oleh pengguna.", vbInformation, "Batal"
+            GoTo ResetExcel
+        Else
+            ' Opsional: Eksekusi aksi konfirmasi (Yes) di SAP jika diperlukan
+            ' SAPSession.findById("wnd[0]").sendVKey 0
+        End If
+    Else
+        ' Jika teks yang muncul selain "Execute Receipt 101?"
+        MsgBox "Pesan dari SAP: " & pesanSAP & vbCrLf & "Proses dihentikan.", vbCritical, "Peringatan SAP"
+        GoTo ResetExcel
+    End If
+    
+    ' Kembalikan Performa Excel
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
     
     MsgBox "Proses GR sebanyak " & (barisTerakhir - 4) & " Lot ID selesai!", vbInformation, "Sukses"
     Exit Sub
 
 ErrorSAP:
-    MsgBox "Terjadi kesalahan koneksi komponen SAP! Pastikan Anda sudah membuka menu ZWMP001.", vbCritical, "Error SAP"
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    MsgBox "Terjadi kesalahan pada komponen SAP GUI!" & vbCrLf & _
+           "Nomor Baris Excel: " & i & vbCrLf & _
+           "Detail Error: " & Err.Description, vbCritical, "Error SAP"
+    Exit Sub
+
+ResetExcel:
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+End Sub
+
+' Fungsi Pembantu: Menunggu SAP secara dinamis (Hanya menunggu saat SAP sibuk)
+Sub WaitSAP(Session As Object)
+    Do While Session.Busy
+        DoEvents
+    Loop
 End Sub
 
