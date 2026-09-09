@@ -2,27 +2,28 @@ Private Sub Worksheet_SelectionChange(ByVal Target As Range)
     Dim shp As Shape
     Dim areaKlik As Range
     
-    ' Tentukan area sel pemicu (misal kolom A dari baris 2 sampai 10)
     Set areaKlik = Range("A2:A10")
-    
-    ' Jika yang di-klik di luar area tersebut atau memilih lebih dari 1 sel, batalkan proses
-    If Intersect(Target, areaKlik) Is Nothing Then Exit Sub
     If Target.Cells.Count > 1 Then Exit Sub
     
     On Error Resume Next
     
-    ' 1. SEMBUNYIKAN semua shape yang ada di sheet ini terlebih dahulu
+    ' JIKA KLIK DI LUAR AREA TABEL / KLIK SEL KOSONG: Munculkan semua shape
+    If Intersect(Target, areaKlik) Is Nothing Or Target.Value = "" Then
+        For Each shp In ActiveSheet.Shapes
+            If shp.Type = msoAutoShape Or shp.Type = msoFreeform Then
+                shp.Visible = msoTrue
+            End If
+        Next shp
+        Exit Sub
+    End If
+    
+    ' JIKA KLIK DI DALAM AREA TABEL: Sembunyikan semua, lalu munculkan yang dipilih
     For Each shp In ActiveSheet.Shapes
-        ' Opsional: Menghindari agar tombol macro lain tidak ikut tersembunyi
         If shp.Type = msoAutoShape Or shp.Type = msoFreeform Then
             shp.Visible = msoFalse
         End If
     Next shp
     
-    ' 2. MUNCULKAN shape yang namanya tertulis di sel yang sedang di-klik
-    If Target.Value <> "" Then
-        ActiveSheet.Shapes(Target.Value).Visible = msoTrue
-    End If
-    
+    ActiveSheet.Shapes(Target.Value).Visible = msoTrue
     On Error GoTo 0
 End Sub
