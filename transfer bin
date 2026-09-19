@@ -1,0 +1,90 @@
+Sub InputDataToSAP()
+    Dim SapGuiAuto As Object
+    Dim App As Object
+    Dim Connection As Object
+    Dim Session As Object
+    Dim ws As Worksheet
+    Dim lastRow As Long
+    Dim i As Long
+    Dim whValue As String
+    Dim lotIdValue As String
+    Dim qtyValue As String
+    Dim newBinValue As String
+
+    ' 1. Hubungkan ke SAP GUI yang sedang aktif
+    On Error Resume Next
+    Set SapGuiAuto = GetObject("SAPGUI")
+    If SapGuiAuto Is Nothing Then
+        MsgBox "SAP GUI tidak ditemukan. Pastikan SAP sudah terbuka.", vbCritical
+        Exit Sub
+    End If
+    
+    Set App = SapGuiAuto.GetScriptingEngine
+    Set Connection = App.Children(0)
+    Set Session = Connection.Children(0)
+    On Error GoTo 0
+
+    If Session Is Nothing Then
+        MsgBox "Sesi SAP tidak ditemukan.", vbCritical
+        Exit Sub
+    End If
+
+    ' Set Worksheet (Sesuaikan nama Sheet jika berbeda)
+    Set ws = ThisWorkbook.Sheets(1) 
+    
+    ' Mencari baris terakhir berdasarkan Kolom A
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+
+    ' Loop berulang dari baris 2 hingga baris terakhir (Asumsi baris 1 adalah Header)
+    For i = 2 To lastRow
+        ' Mengambil nilai dari kolom Excel
+        whValue = ws.Range("WH").Value          ' Mengambil dari Named Range/Cell WH
+        lotIdValue = ws.Cells(i, 1).Value       ' Kolom A (Lot ID)
+        qtyValue = ws.Cells(i, 2).Value         ' Kolom B (Quantity)
+        newBinValue = ws.Cells(i, 10).Value     ' Kolom J (Bin Baru)
+
+        ' Abaikan jika Lot ID kosong
+        If Trim(lotIdValue) <> "" Then
+            On Error GoTo ErrorHandler
+            
+            ' =========================================================================
+            ' IMPLANTASI SCRIPT SAP
+            ' Catatan: Ubah ID Objek SAP (wnd[0]/usr/txt...) di bawah ini sesuai hasil 
+            ' Script Recording dari SAP Anda.
+            ' =========================================================================
+            
+            ' 1. Masukkan WH ke Parameter 1
+            Session.findById("wnd[0]/usr/txtPARAM1_FIELD_ID").Text = whValue
+            
+            ' 2. Masukkan Lot ID (Kolom A) ke parameter Lot ID
+            Session.findById("wnd[0]/usr/txtLOTID_FIELD_ID").Text = lotIdValue
+            
+            ' 3. Masukkan Quantity (Kolom B)
+            Session.findById("wnd[0]/usr/txtQTY_FIELD_ID").Text = qtyValue
+            
+            ' 4. Masukkan Bin Baru (Kolom J)
+            Session.findById("wnd[0]/usr/txtBIN_FIELD_ID").Text = newBinValue
+            
+            ' 5. Mengetuk tombol OK
+            Session.findById("wnd[0]/tbar[0]/btn[0]").press
+            
+            ' 6. Mengetuk tombol YES jika pop-up konfirmasi muncul
+            On Error Resume Next
+            Session.findById("wnd[1]/usr/btnSPOP-VAROPTION1").press ' ID umum tombol YES pada pop-up
+            On Error GoTo ErrorHandler
+
+            ' Tulis teks "Success" di Kolom K jika proses berjalan tanpa error
+            ws.Cells(i, 11).Value = "Success"
+        End If
+
+ContinueLoop:
+    Next i
+
+    MsgBox "Proses penginputan ke SAP selesai!", vbInformation, "Selesai"
+    Exit Sub
+
+ErrorHandler:
+    ws.Cells(i, 11).Value = "Failed: " & Err.Description
+    Err.Clear
+    Resume ContinueLoop
+End Sub
